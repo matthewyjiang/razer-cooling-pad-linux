@@ -1,81 +1,67 @@
-# Razer Laptop Cooling Pad - Linux Fan Curve Controller
+# Razer Cooling Pad Linux
 
-A Python script that gives you full fan curve control over the **Razer Laptop Cooling Pad** on Linux, bypassing Razer Synapse entirely.
+Control the Razer Laptop Cooling Pad (`1532:0f43`) directly from Linux with a temperature-driven fan curve.
 
-The Razer Cooling Pad (USB `1532:0F43`) only officially supports Windows via Razer Synapse, which provides limited built-in fan profiles with non-linear behavior. This tool communicates directly with the pad over HID to set precise fan speeds based on your CPU temperature.
-
-> HID protocol reverse-engineered from [FanControl.RazerCoolingPadPlugin](https://github.com/Benson5650/FanControl.RazerCoolingPadPlugin) (Windows/C#).
+This project talks to the pad over HID, so you can run custom curves without Razer Synapse. The HID protocol is based on the reverse-engineering work from [FanControl.RazerCoolingPadPlugin](https://github.com/Benson5650/FanControl.RazerCoolingPadPlugin).
 
 ## Features
 
-- Temperature-based fan curve with linear interpolation between points
-- Auto-detects all thermal zones (`/sys/class/thermal/`)
-- Hysteresis to prevent rapid fan speed toggling
-- Auto-reconnects if the pad is unplugged and replugged
-- Releases fan control back to the pad on exit (Ctrl+C / SIGTERM)
-- Systemd service file included for running as a background daemon
+- Configurable fan curves with linear interpolation between points
+- Automatic thermal zone discovery from `/sys/class/thermal`
+- Temperature hysteresis to reduce unnecessary fan step-downs
+- Automatic reconnect after unplug/replug
+- Clean shutdown that releases control back to the pad
+- Included Arch package files, systemd service, and preset management
 
-## Supported Hardware
+## Hardware
 
-| Device | USB ID | Tested Firmware |
-|--------|--------|----------------|
-| Razer Laptop Cooling Pad | `1532:0F43` | v1.10.00_r1 |
+| Device | USB ID | Tested firmware |
+| --- | --- | --- |
+| Razer Laptop Cooling Pad | `1532:0f43` | `v1.10.00_r1` |
 
-Fan speed range: **500 - 3200 RPM** (50 RPM increments).
+Fan speed range: `500` to `3200` RPM in `50` RPM steps.
 
-## Installation
+## Install
 
-### Arch Linux package
-
-Install the packaging tools if needed, then build and install the package from this repository:
+### Arch Linux
 
 ```bash
 sudo pacman -S --needed base-devel
 makepkg -si
 ```
 
-If you prefer to install the built package separately:
+That installs:
 
-```bash
-makepkg -s
-sudo pacman -U ./razer-coolingpad-linux-*.pkg.tar.zst
-```
-
-This installs:
-
-- `razer-coolingpad-fancurve` to `/usr/bin/`
-- `razer-coolingpad-preset` to `/usr/bin/`
+- `razer-coolingpad` to `/usr/bin/razer-coolingpad`
 - the service to `/usr/lib/systemd/system/razer-coolingpad.service`
-- a udev rule to `/usr/lib/udev/rules.d/99-razer-coolingpad.rules`
+- the udev rule to `/usr/lib/udev/rules.d/99-razer-coolingpad.rules`
 - the default config to `/etc/razer-coolingpad-linux/config.json`
-- example curves to `/usr/share/razer-coolingpad-linux/curves/`
+- preset curves to `/usr/share/razer-coolingpad-linux/curves/`
 
-After installing, edit `/etc/razer-coolingpad-linux/config.json` if needed, then enable the service manually:
+Enable the service after install:
 
 ```bash
 sudo systemctl enable --now razer-coolingpad.service
 ```
 
-To switch between the packaged presets later:
+### From source
 
 ```bash
-razer-coolingpad-preset list
-sudo razer-coolingpad-preset set balanced
+git clone https://github.com/matthewyjiang/razer-cooling-pad-linux.git
+cd razer-cooling-pad-linux
+uv sync
 ```
 
-### Source install
+Run commands in the project environment with `uv run`:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/razer-coolingpad-linux.git
-cd razer-coolingpad-linux
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+uv run razer-coolingpad sensors
+sudo uv run razer-coolingpad
 ```
 
 ### System dependency
 
-The `hidapi` Python package requires the `hidapi` C library. Install it for your distro:
+`hidapi` also needs the system library:
 
 ```bash
 # Arch / Manjaro
@@ -88,116 +74,122 @@ sudo apt install libhidapi-hidraw0
 sudo dnf install hidapi
 ```
 
-### Permissions
+## Permissions
 
-The Arch package installs a udev rule for the cooling pad automatically.
-If the pad was already plugged in when you installed the package, unplug and replug it
-(or reboot) so the new permissions apply.
+The Arch package installs the udev rule automatically. If the pad was already connected, unplug and replug it after installing.
 
-For non-packaged installs, the script needs access to the HID device. You can either:
-
-**Option A:** Run with `sudo` (simplest)
-
-**Option B:** Add a udev rule for unprivileged access:
+For manual installs, either run the tool with `sudo` or install the included udev rule:
 
 ```bash
-echo 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0f43", MODE="0666"' | \
-  sudo tee /etc/udev/rules.d/99-razer-coolingpad.rules
+sudo install -Dm644 99-razer-coolingpad.rules /etc/udev/rules.d/99-razer-coolingpad.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-After adding the udev rule, unplug and replug the pad (or reboot).
-
 ## Usage
 
-### Quick commands
+### Common commands
 
 ```bash
-# List available temperature sensors
-razer-coolingpad-fancurve --list-sensors
+# Run the fan curve service in the foreground
+sudo razer-coolingpad
 
-# Run with a fan curve config
-sudo razer-coolingpad-fancurve -c /usr/share/razer-coolingpad-linux/curves/balanced.json -v
+# List thermal zones
+razer-coolingpad sensors
+
+# Show current temperature, fan RPM, and active curve
+razer-coolingpad status
+
+# Run with the packaged balanced preset
+sudo razer-coolingpad -c /usr/share/razer-coolingpad-linux/curves/balanced.json -v
 
 # Set a fixed RPM
-sudo razer-coolingpad-fancurve --set-rpm 2000
+sudo razer-coolingpad set-rpm 2000
 
-# Release control (pad returns to its default behavior)
-sudo razer-coolingpad-fancurve --off
+# Release control back to the pad
+sudo razer-coolingpad off
 
-# Generate a sample config to customize
-razer-coolingpad-fancurve --generate-config > my-curve.json
+# Generate a starter config
+razer-coolingpad generate-config > my-curve.json
 
-# Show available presets
-razer-coolingpad-preset list
-
-# Switch the packaged service to a preset
-sudo razer-coolingpad-preset set performance
+# Manage presets
+razer-coolingpad preset list
+razer-coolingpad preset current
+razer-coolingpad preset status
+sudo razer-coolingpad preset set balanced
 ```
 
-### Command-line options
+### Global options
 
 | Flag | Description |
-|------|-------------|
-| `-c`, `--config FILE` | Path to a JSON fan curve config |
-| `--list-sensors` | Show all thermal zones and their temperatures |
-| `--set-rpm RPM` | Set a fixed fan speed (500-3200) and exit |
-| `--off` | Release fan control and exit |
-| `--interval SEC` | Polling interval in seconds (default: 3) |
-| `--sensor PATH` | Specific thermal zone path (repeatable) |
-| `--hysteresis DEG` | Temperature hysteresis in °C (default: 2) |
-| `--generate-config` | Print a sample JSON config to stdout |
+| --- | --- |
+| `-c`, `--config FILE` | Path to a JSON config |
+| `--interval SEC` | Poll interval in seconds |
+| `--sensor PATH` | Thermal sensor path; repeat to use more than one |
+| `--hysteresis DEG` | Degrees C required before lowering fan speed |
 | `-v`, `--verbose` | Print temperature and RPM each cycle |
 
-## Fan Curve Configs
+### Subcommands
 
-Three example curves are provided in the `curves/` directory:
+| Command | Description |
+| --- | --- |
+| `sensors` | Print detected thermal zones |
+| `status` | Print current temperature, curve target, reported RPM, and active curve |
+| `set-rpm RPM` | Set a fixed speed and exit |
+| `off` | Release control and exit |
+| `generate-config` | Print a sample JSON config |
+| `preset list` | List available presets |
+| `preset current` | Show the active preset |
+| `preset status` | Show live status using the active preset config |
+| `preset set NAME` | Copy a preset into the active config and restart the service if needed |
 
-For packaged installs, switch between them with:
+## Presets
+
+Included presets live in `curves/` and are installed to `/usr/share/razer-coolingpad-linux/curves/`.
 
 ```bash
-razer-coolingpad-preset list
-sudo razer-coolingpad-preset set silent
-razer-coolingpad-preset current
+razer-coolingpad preset list
+razer-coolingpad preset current
+razer-coolingpad preset status
+sudo razer-coolingpad preset set balanced
 ```
 
-### `silent.json` - Prioritize quiet operation
+### `silent.json`
 
-Fans stay off until 65°C. Best for light workloads where you want silence.
+Quiet first. Fans stay off until `65C`.
 
-| Temp | Fan % | ~RPM |
-|------|-------|------|
-| ≤65°C | 0% | 500 |
-| 75°C | 15% | 900 |
-| 85°C | 40% | 1600 |
-| ≥95°C | 70% | 2400 |
+| Temp | Fan % | Approx RPM |
+| --- | --- | --- |
+| `<=65C` | `0` | `500` |
+| `75C` | `15` | `900` |
+| `85C` | `40` | `1600` |
+| `>=95C` | `70` | `2400` |
 
-### `balanced.json` - General-purpose daily use
+### `balanced.json`
 
-Fans start ramping at 55°C. Good balance between noise and cooling.
+General-purpose preset.
 
-| Temp | Fan % | ~RPM |
-|------|-------|------|
-| ≤55°C | 0% | 500 |
-| 65°C | 25% | 1175 |
-| 75°C | 55% | 1950 |
-| 85°C | 80% | 2650 |
-| ≥90°C | 100% | 3200 |
+| Temp | Fan % | Approx RPM |
+| --- | --- | --- |
+| `<=55C` | `0` | `500` |
+| `65C` | `25` | `1175` |
+| `75C` | `55` | `1950` |
+| `85C` | `80` | `2650` |
+| `>=90C` | `100` | `3200` |
 
-### `performance.json` - Maximum cooling
+### `performance.json`
 
-Fans start early and ramp aggressively. Best for gaming or sustained heavy loads.
+Starts earlier and ramps harder.
 
-| Temp | Fan % | ~RPM |
-|------|-------|------|
-| ≤45°C | 10% | 770 |
-| 55°C | 35% | 1450 |
-| 65°C | 60% | 2100 |
-| 75°C | 85% | 2800 |
-| ≥80°C | 100% | 3200 |
+| Temp | Fan % | Approx RPM |
+| --- | --- | --- |
+| `<=45C` | `10` | `770` |
+| `55C` | `35` | `1450` |
+| `65C` | `60` | `2100` |
+| `75C` | `85` | `2800` |
+| `>=80C` | `100` | `3200` |
 
-### Config format
+## Config format
 
 ```json
 {
@@ -215,61 +207,39 @@ Fans start early and ramp aggressively. Best for gaming or sustained heavy loads
 ```
 
 | Field | Description |
-|-------|-------------|
-| `curve` | Array of `{temp, percent}` points. Temps between points are linearly interpolated. |
-| `interval` | How often to poll temperature, in seconds. |
-| `hysteresis` | Ignore temperature changes smaller than this (reduces fan speed flickering). |
-| `sensors` | `"auto"` to use all thermal zones, or an array of sysfs paths. |
+| --- | --- |
+| `curve` | List of `{temp, percent}` points used for linear interpolation |
+| `interval` | Polling interval in seconds |
+| `hysteresis` | Degrees C required before lowering fan speed |
+| `sensors` | `"auto"` or an array of sysfs temperature paths |
 
-## Running as a systemd service
+## systemd service
+
+The included service reads `/etc/razer-coolingpad-linux/config.json`.
 
 ```bash
-# Review or adjust the packaged config
-sudo nano /etc/razer-coolingpad-linux/config.json
-
-# Enable and start
 sudo systemctl enable --now razer-coolingpad.service
-
-# Check status / logs
 sudo systemctl status razer-coolingpad.service
 sudo journalctl -u razer-coolingpad.service -f
-
-# Stop and disable
-sudo systemctl disable --now razer-coolingpad.service
 ```
-
-The packaged service reads `/etc/razer-coolingpad-linux/config.json` by default.
-
-Example curves are installed to `/usr/share/razer-coolingpad-linux/curves/`.
-
-## How it works
-
-The script sends 91-byte HID feature reports to the cooling pad. The protocol was reverse-engineered from the [Windows FanControl plugin](https://github.com/Benson5650/FanControl.RazerCoolingPadPlugin):
-
-- Fan speed is encoded as `RPM / 50` in the report payload
-- A XOR checksum is computed over the RPM byte
-- A separate "off" command returns the pad to its default built-in behavior
-- The pad has no physical RPM sensor — reported RPM reflects the last commanded speed
 
 ## Troubleshooting
 
-**"Razer Cooling Pad not found"**
-- Check `lsusb | grep 1532` — the pad should show as `1532:0f43`
-- Make sure you're running with `sudo` or have the udev rule in place
-- If another program (e.g. OpenRazer) has claimed the device, close it first
+### Device not found
 
-**"Could not read any temperature sensor"**
-- Run `--list-sensors` to see what's available
-- Use `--sensor /sys/class/thermal/thermal_zone0/temp` to target a specific one
+- Check that `lsusb` shows `1532:0f43`
+- Make sure you have root or the udev rule applied
+- Close other software that may have claimed the device
 
-**Fans not changing speed**
-- The pad rounds to 50 RPM increments, small % changes may not produce a visible difference
-- Use `-v` to see what's being sent each cycle
+### No temperatures available
 
-## Credits
+- Run `razer-coolingpad sensors`
+- Pass one or more explicit `--sensor` paths if auto-detection is not suitable
 
-The HID protocol used in this project was reverse-engineered by [Benson5650](https://github.com/Benson5650) in their Windows FanControl plugin:
-[FanControl.RazerCoolingPadPlugin](https://github.com/Benson5650/FanControl.RazerCoolingPadPlugin). Without their work figuring out the USB communication, this Linux port would not exist.
+### Fans do not seem to change much
+
+- The device only accepts `50` RPM increments
+- Use `-v` to see the commanded RPM over time
 
 ## License
 

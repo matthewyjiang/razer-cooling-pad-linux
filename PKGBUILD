@@ -1,5 +1,5 @@
 pkgname=razer-coolingpad-linux
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='Fan curve controller for the Razer Laptop Cooling Pad'
 arch=('any')
@@ -13,13 +13,11 @@ source=(
   'LICENSE'
   'README.md'
   'config.json'
-  'razer-coolingpad-fancurve.py'
-  'razer-coolingpad-preset'
+  'razer-coolingpad'
   'razer-coolingpad-linux.install'
   'razer-coolingpad.service'
 )
 sha256sums=(
-  'SKIP'
   'SKIP'
   'SKIP'
   'SKIP'
@@ -35,10 +33,8 @@ package() {
   install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
 
-  install -Dm755 "$srcdir/razer-coolingpad-fancurve.py" \
-    "$pkgdir/usr/bin/razer-coolingpad-fancurve"
-  install -Dm755 "$srcdir/razer-coolingpad-preset" \
-    "$pkgdir/usr/bin/razer-coolingpad-preset"
+  install -Dm755 "$srcdir/razer-coolingpad" \
+    "$pkgdir/usr/bin/razer-coolingpad"
   install -Dm644 "$srcdir/razer-coolingpad.service" \
     "$pkgdir/usr/lib/systemd/system/razer-coolingpad.service"
   install -Dm644 "$srcdir/config.json" \

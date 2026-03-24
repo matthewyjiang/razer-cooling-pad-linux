@@ -12,8 +12,8 @@ post_install() {
     If the device was already plugged in, unplug and replug it.
 
 ==> To switch presets later, run:
-    razer-coolingpad-preset list
-    sudo razer-coolingpad-preset set balanced
+    razer-coolingpad preset list
+    sudo razer-coolingpad preset set balanced
 
 ==> Default config:
     /etc/razer-coolingpad-linux/config.json

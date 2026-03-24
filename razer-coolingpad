@@ -1,0 +1,570 @@
+#!/usr/bin/env python3
+"""Razer Laptop Cooling Pad fan controller for Linux."""
+
+import argparse
+import json
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+try:
+    import hid
+except ImportError:
+    print("Error: hidapi not installed. Run: uv sync", file=sys.stderr)
+    sys.exit(1)
+
+# Device constants
+VID = 0x1532
+PID = 0x0F43
+REPORT_LEN = 91
+REPORT_ID = 0x00
+MIN_RPM = 500
+MAX_RPM = 3200
+RPM_STEP = 50
+DEFAULT_HYSTERESIS = 2.0
+
+# Byte offsets within the 91-byte report (0-indexed, buf[0] = report ID)
+IDX_REPORT_CODE = 8
+IDX_SUB_VER = 9
+IDX_CURVE_ID = 10
+IDX_RPM_L = 11
+IDX_RPM_H = 12
+IDX_CHK_L = 89
+IDX_CHK_H = 90
+
+# Base header (bytes 1..90 of the report)
+HEADER = bytearray([
+    0x00, 0x02, 0x00, 0x00, 0x00, 0x03, 0x0D, 0x10, 0x01, 0x02,
+    0x36, 0x00,
+] + [0x00] * 78)
+
+# Linear interpolation between points. Below the first point uses the first
+# percentage; above the last point uses the last percentage.
+DEFAULT_CURVE = [
+    (40, 0),
+    (50, 20),
+    (60, 40),
+    (70, 60),
+    (80, 80),
+    (90, 100),
+]
+
+DEFAULT_POLL_INTERVAL = 3  # seconds
+DEFAULT_CONFIG_PATH = "/etc/razer-coolingpad-linux/config.json"
+DEFAULT_CURVE_DIR = "/usr/share/razer-coolingpad-linux/curves"
+
+
+@dataclass
+class AppConfig:
+    curve: list[tuple[float, float]]
+    interval: float = DEFAULT_POLL_INTERVAL
+    hysteresis: float = DEFAULT_HYSTERESIS
+    sensors: list[str] | None = None
+
+
+def find_thermal_zones():
+    """Discover all thermal zones and their types."""
+    zones = []
+    thermal_dir = Path("/sys/class/thermal")
+    if not thermal_dir.exists():
+        return zones
+    for zone in sorted(thermal_dir.glob("thermal_zone*")):
+        type_file = zone / "type"
+        temp_file = zone / "temp"
+        if type_file.exists() and temp_file.exists():
+            name = type_file.read_text().strip()
+            zones.append({"path": str(temp_file), "name": name, "zone": zone.name})
+    return zones
+
+
+def read_temp(sensor_path):
+    """Read temperature in Celsius from a sysfs thermal zone."""
+    try:
+        raw = Path(sensor_path).read_text().strip()
+        return int(raw) / 1000.0
+    except (OSError, ValueError):
+        return None
+
+
+def get_max_temp(sensor_paths):
+    """Read the highest temperature across all specified sensors."""
+    temps = [read_temp(p) for p in sensor_paths]
+    valid = [t for t in temps if t is not None]
+    return max(valid) if valid else None
+
+
+def get_sensor_temperatures(sensor_paths):
+    """Read temperatures for each configured sensor path."""
+    return [(sensor_path, read_temp(sensor_path)) for sensor_path in sensor_paths]
+
+
+def interpolate_curve(curve, temp):
+    """Linearly interpolate fan percentage from the curve for a given temperature."""
+    if temp <= curve[0][0]:
+        return curve[0][1]
+    if temp >= curve[-1][0]:
+        return curve[-1][1]
+    for i in range(len(curve) - 1):
+        t0, p0 = curve[i]
+        t1, p1 = curve[i + 1]
+        if t0 <= temp <= t1:
+            ratio = (temp - t0) / (t1 - t0)
+            return p0 + ratio * (p1 - p0)
+    return curve[-1][1]
+
+
+def percent_to_rpm(percent):
+    """Convert 0-100% to RPM in the 500-3200 range, rounded to nearest 50."""
+    percent = max(0.0, min(100.0, percent))
+    rpm = MIN_RPM + percent / 100.0 * (MAX_RPM - MIN_RPM)
+    return round_rpm(rpm)
+
+
+def clamp_rpm(rpm):
+    return max(MIN_RPM, min(MAX_RPM, rpm))
+
+
+def round_rpm(rpm):
+    return int(round(clamp_rpm(rpm) / RPM_STEP)) * RPM_STEP
+
+
+def build_report(report_code, sub_version, curve_id, rpm_raw_low, rpm_raw_high, checksum_low):
+    """Build a 91-byte HID feature report."""
+    buf = bytearray(REPORT_LEN)
+    buf[0] = REPORT_ID
+    buf[1:91] = HEADER
+
+    buf[IDX_REPORT_CODE] = report_code
+    buf[IDX_SUB_VER] = sub_version
+    buf[IDX_CURVE_ID] = curve_id
+    buf[IDX_RPM_L] = rpm_raw_low
+    buf[IDX_RPM_H] = rpm_raw_high
+    buf[IDX_CHK_L] = checksum_low
+    buf[IDX_CHK_H] = 0x00
+
+    return bytes(buf)
+
+
+def build_set_rpm_report(rpm):
+    """Build a 91-byte HID feature report to set fan RPM."""
+    raw = int(round(round_rpm(rpm) / RPM_STEP))
+    return build_report(
+        report_code=0x01,
+        sub_version=0x01,
+        curve_id=0x05,
+        rpm_raw_low=raw & 0xFF,
+        rpm_raw_high=(raw >> 8) & 0xFF,
+        checksum_low=(raw & 0xFF) ^ 0x0B,
+    )
+
+
+def build_off_report():
+    """Build a 91-byte HID feature report to release fan control."""
+    return build_report(
+        report_code=0x10,
+        sub_version=0x00,
+        curve_id=0x06,
+        rpm_raw_low=0x00,
+        rpm_raw_high=0x00,
+        checksum_low=0x18,
+    )
+
+
+def open_device():
+    """Open the Razer cooling pad HID device. Returns hid.device or None."""
+    try:
+        dev = hid.device()
+        dev.open(VID, PID)
+        return dev
+    except IOError:
+        return None
+
+
+def send_feature_report(dev, report):
+    """Send a feature report to the device."""
+    dev.send_feature_report(report)
+
+
+def read_rpm(dev):
+    """Read the current RPM from the device."""
+    try:
+        data = dev.get_feature_report(REPORT_ID, REPORT_LEN)
+        raw = data[IDX_RPM_L] | (data[IDX_RPM_H] << 8)
+        return raw * 50
+    except IOError:
+        return None
+
+
+def validate_curve(curve):
+    """Return a normalized, sorted fan curve."""
+    if not curve:
+        raise ValueError("curve must contain at least one point")
+
+    normalized = []
+    for point in curve:
+        temp, percent = point
+        normalized.append((float(temp), max(0.0, min(100.0, float(percent)))))
+
+    normalized.sort(key=lambda point: point[0])
+    return normalized
+
+
+def validate_sensor_paths(sensor_paths):
+    """Validate that configured sensor paths look usable."""
+    for sensor_path in sensor_paths:
+        if not Path(sensor_path).exists():
+            raise ValueError(f"sensor path does not exist: {sensor_path}")
+    return list(sensor_paths)
+
+
+def load_config(path):
+    """Load fan curve config from a JSON file."""
+    with open(path, encoding="utf-8") as file_obj:
+        raw_config = json.load(file_obj)
+
+    config = AppConfig(curve=list(DEFAULT_CURVE))
+
+    if "curve" in raw_config:
+        config.curve = validate_curve(
+            (point["temp"], point["percent"]) for point in raw_config["curve"]
+        )
+    if "interval" in raw_config:
+        config.interval = float(raw_config["interval"])
+    if "hysteresis" in raw_config:
+        config.hysteresis = max(0.0, float(raw_config["hysteresis"]))
+    if "sensors" in raw_config and raw_config["sensors"] != "auto":
+        config.sensors = validate_sensor_paths(raw_config["sensors"])
+
+    return config
+
+
+def generate_sample_config():
+    """Return a sample config dict."""
+    return {
+        "curve": [{"temp": t, "percent": p} for t, p in DEFAULT_CURVE],
+        "interval": DEFAULT_POLL_INTERVAL,
+        "hysteresis": DEFAULT_HYSTERESIS,
+        "sensors": "auto",
+    }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Razer Laptop Cooling Pad fan curve controller"
+    )
+    parser.add_argument("--config", "-c", help="Path to JSON config file")
+    parser.add_argument("--interval", type=float, default=None, help="Poll interval in seconds (default: 3)")
+    parser.add_argument("--sensor", action="append", help="Thermal zone path(s) to use (default: all)")
+    parser.add_argument("--hysteresis", type=float, default=None, help="Temp hysteresis in degrees C (default: 2)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    subparsers.add_parser("sensors", help="List thermal zones and exit")
+    subparsers.add_parser("status", help="Show current temperature, fan RPM, and active curve")
+
+    set_rpm_parser = subparsers.add_parser("set-rpm", help="Set a fixed RPM and exit")
+    set_rpm_parser.add_argument("rpm", type=int, metavar="RPM", help="Target RPM (500-3200)")
+
+    subparsers.add_parser("off", help="Release fan control and exit")
+    subparsers.add_parser("generate-config", help="Print a sample JSON config and exit")
+
+    preset_parser = subparsers.add_parser("preset", help="Manage preset curves")
+    preset_subparsers = preset_parser.add_subparsers(dest="preset_command", required=True)
+    preset_subparsers.add_parser("list", help="List available presets")
+    preset_subparsers.add_parser("current", help="Show the active preset")
+    preset_subparsers.add_parser("status", help="Show live status using the active preset config")
+    preset_set_parser = preset_subparsers.add_parser("set", help="Activate a preset")
+    preset_set_parser.add_argument("preset", help="Preset name")
+
+    return parser.parse_args()
+
+
+def print_sensors():
+    zones = find_thermal_zones()
+    if not zones:
+        print("No thermal zones found.")
+        return
+
+    for zone in zones:
+        temp = read_temp(zone["path"])
+        temp_display = f"{temp:6.1f}°C" if temp is not None else " unread"
+        print(
+            f"  {zone['zone']:20s}  {zone['name']:20s}  {temp_display:>8s}  ({zone['path']})"
+        )
+
+
+def print_status(dev, config):
+    sensor_paths = config.sensors
+    sensor_temps = get_sensor_temperatures(sensor_paths)
+    valid_temps = [temp for _, temp in sensor_temps if temp is not None]
+    reported_rpm = read_rpm(dev)
+
+    if valid_temps:
+        current_temp = max(valid_temps)
+        target_percent = interpolate_curve(config.curve, current_temp)
+        target_rpm = percent_to_rpm(target_percent)
+        print(f"Temperature:   {current_temp:.1f}°C")
+        print(f"Curve target:  {target_rpm} RPM ({target_percent:.1f}%)")
+    else:
+        print("Temperature:   unavailable")
+        print("Curve target:  unavailable")
+
+    if reported_rpm is not None:
+        print(f"Reported RPM: {reported_rpm}")
+    else:
+        print("Reported RPM: unavailable")
+
+    if len(sensor_temps) > 1:
+        print("Sensors:")
+        for sensor_path, temp in sensor_temps:
+            temp_display = f"{temp:.1f}°C" if temp is not None else "unavailable"
+            print(f"  - {sensor_path}: {temp_display}")
+
+
+def format_curve_points(curve):
+    return ", ".join(f"{temp:g}C->{percent:g}%" for temp, percent in curve)
+
+
+def get_curve_dir(config_path):
+    config = Path(config_path or DEFAULT_CONFIG_PATH)
+    if config.parent == Path(DEFAULT_CONFIG_PATH).parent:
+        return Path(DEFAULT_CURVE_DIR)
+    return Path(__file__).resolve().parent / "curves"
+
+
+def detect_current_preset(config_path, curve_dir):
+    config = Path(config_path)
+    if not config.exists():
+        return "missing"
+
+    for preset_path in sorted(curve_dir.glob("*.json")):
+        try:
+            if config.read_bytes() == preset_path.read_bytes():
+                return preset_path.stem
+        except OSError:
+            continue
+
+    return "custom"
+
+
+def print_preset_list(config_path, curve_dir):
+    current = detect_current_preset(config_path, curve_dir)
+
+    for preset_path in sorted(curve_dir.glob("*.json")):
+        marker = "*" if preset_path.stem == current else " "
+        print(f"{marker} {preset_path.stem}")
+
+    if current == "custom":
+        print("* custom")
+
+
+def set_preset(config_path, curve_dir, preset_name):
+    source = curve_dir / f"{preset_name}.json"
+    if not source.exists():
+        raise ValueError(f"unknown preset: {preset_name}")
+
+    destination = Path(config_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, destination)
+    print(f"Active curve set to {preset_name}.")
+
+    systemctl = shutil.which("systemctl")
+    if systemctl and Path("/run/systemd/system").exists():
+        service = "razer-coolingpad.service"
+        active = subprocess.run(
+            [systemctl, "is-active", "--quiet", service],
+            check=False,
+        )
+        if active.returncode == 0:
+            subprocess.run([systemctl, "restart", service], check=True)
+            print(f"Restarted {service}.")
+        else:
+            print(
+                f"Service is not running. Start it with: sudo systemctl enable --now {service}"
+            )
+
+
+def resolve_sensor_paths(config, cli_sensors):
+    if cli_sensors:
+        return validate_sensor_paths(cli_sensors)
+    if config.sensors is not None:
+        return config.sensors
+
+    zones = find_thermal_zones()
+    sensor_paths = [zone["path"] for zone in zones]
+    if not sensor_paths:
+        print("Error: No thermal zones found. Specify --sensor manually.", file=sys.stderr)
+        sys.exit(1)
+    return sensor_paths
+
+
+def resolve_config(args):
+    config = AppConfig(curve=list(DEFAULT_CURVE))
+
+    config_path = args.config or DEFAULT_CONFIG_PATH
+    if Path(config_path).exists():
+        config = load_config(config_path)
+
+    if args.interval is not None:
+        config.interval = args.interval
+    if args.hysteresis is not None:
+        config.hysteresis = max(0.0, args.hysteresis)
+
+    config.curve = validate_curve(config.curve)
+    config.sensors = resolve_sensor_paths(config, args.sensor)
+    return config
+
+
+def should_update_rpm(last_temp, current_temp, last_rpm, next_rpm, hysteresis):
+    if last_rpm is None:
+        return True
+    if next_rpm == last_rpm:
+        return False
+    if last_temp is None:
+        return True
+    if next_rpm > last_rpm:
+        return True
+    return abs(current_temp - last_temp) >= hysteresis
+
+
+def reconnect_device(running):
+    print("Device disconnected, attempting reconnect...", file=sys.stderr)
+    dev = None
+    while running() and dev is None:
+        time.sleep(2)
+        dev = open_device()
+    if dev:
+        print("Reconnected.")
+    return dev
+
+
+def main():
+    args = parse_args()
+
+    if args.command == "sensors":
+        print_sensors()
+        return
+
+    if args.command == "generate-config":
+        print(json.dumps(generate_sample_config(), indent=2))
+        return
+
+    if args.command == "preset":
+        config_path = args.config or DEFAULT_CONFIG_PATH
+        curve_dir = get_curve_dir(config_path)
+
+        if args.preset_command == "list":
+            print_preset_list(config_path, curve_dir)
+            return
+        if args.preset_command == "current":
+            print(detect_current_preset(config_path, curve_dir))
+            return
+        if args.preset_command == "set":
+            try:
+                set_preset(config_path, curve_dir, args.preset)
+            except (OSError, ValueError) as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(1)
+            return
+        if args.preset_command == "status":
+            args.command = "status"
+
+    try:
+        config = resolve_config(args)
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    dev = open_device()
+    if dev is None:
+        print("Error: Razer Cooling Pad not found (VID=0x1532, PID=0x0F43).", file=sys.stderr)
+        print("Make sure the pad is connected and you have permissions (try sudo).", file=sys.stderr)
+        sys.exit(1)
+
+    print("Connected to Razer Cooling Pad")
+
+    if args.command == "off":
+        send_feature_report(dev, build_off_report())
+        print("Fan control released (pad returns to default behavior).")
+        dev.close()
+        return
+
+    if args.command == "status":
+        print_status(dev, config)
+        print(f"Curve:       {format_curve_points(config.curve)}")
+        dev.close()
+        return
+
+    if args.command == "set-rpm":
+        rpm = round_rpm(args.rpm)
+        send_feature_report(dev, build_set_rpm_report(rpm))
+        print(f"Fan set to {rpm} RPM.")
+        dev.close()
+        return
+
+    print(f"Fan curve active (interval={config.interval}s, hysteresis={config.hysteresis}°C)")
+    print(f"Curve points: {config.curve}")
+    print(f"Sensors: {config.sensors}")
+    print("Press Ctrl+C to stop (will release fan control on exit).\n")
+
+    last_rpm = None
+    last_temp = None
+    running = True
+
+    def handle_signal(_sig, _frame):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    try:
+        while running:
+            temp = get_max_temp(config.sensors)
+            if temp is None:
+                if args.verbose:
+                    print("Warning: Could not read any temperature sensor")
+                time.sleep(config.interval)
+                continue
+
+            percent = interpolate_curve(config.curve, temp)
+            rpm = percent_to_rpm(percent)
+
+            if last_rpm is not None and abs(rpm - last_rpm) < RPM_STEP:
+                rpm = last_rpm
+
+            if should_update_rpm(last_temp, temp, last_rpm, rpm, config.hysteresis):
+                try:
+                    send_feature_report(dev, build_set_rpm_report(rpm))
+                    last_rpm = rpm
+                except IOError:
+                    dev.close()
+                    dev = reconnect_device(lambda: running)
+                    if dev:
+                        last_rpm = None
+                        last_temp = None
+                    continue
+
+            if args.verbose:
+                current_rpm = read_rpm(dev) if dev else None
+                print(f"Temp: {temp:5.1f}°C → {percent:5.1f}% → {rpm} RPM (reported: {current_rpm})")
+
+            last_temp = temp
+            time.sleep(config.interval)
+    finally:
+        if dev:
+            try:
+                send_feature_report(dev, build_off_report())
+                print("\nFan control released.")
+            except Exception:
+                pass
+            dev.close()
+
+
+if __name__ == "__main__":
+    main()
