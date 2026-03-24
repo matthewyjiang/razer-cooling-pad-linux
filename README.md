@@ -25,6 +25,29 @@ Fan speed range: **500 - 3200 RPM** (50 RPM increments).
 
 ## Installation
 
+### Arch Linux package
+
+Build and install the package from this repository:
+
+```bash
+makepkg -si
+```
+
+This installs:
+
+- `razer-coolingpad-fancurve` to `/usr/bin/`
+- the service to `/usr/lib/systemd/system/razer-coolingpad.service`
+- the default config to `/etc/razer-coolingpad-linux/config.json`
+- example curves to `/usr/share/razer-coolingpad-linux/curves/`
+
+After installing, edit `/etc/razer-coolingpad-linux/config.json` if needed, then enable the service manually:
+
+```bash
+sudo systemctl enable --now razer-coolingpad.service
+```
+
+### Source install
+
 ```bash
 git clone https://github.com/YOUR_USERNAME/razer-coolingpad-linux.git
 cd razer-coolingpad-linux
@@ -71,19 +94,19 @@ After adding the udev rule, unplug and replug the pad (or reboot).
 
 ```bash
 # List available temperature sensors
-python3 razer-coolingpad-fancurve.py --list-sensors
+razer-coolingpad-fancurve --list-sensors
 
 # Run with a fan curve config
-sudo python3 razer-coolingpad-fancurve.py -c curves/balanced.json -v
+sudo razer-coolingpad-fancurve -c /usr/share/razer-coolingpad-linux/curves/balanced.json -v
 
 # Set a fixed RPM
-sudo python3 razer-coolingpad-fancurve.py --set-rpm 2000
+sudo razer-coolingpad-fancurve --set-rpm 2000
 
 # Release control (pad returns to its default behavior)
-sudo python3 razer-coolingpad-fancurve.py --off
+sudo razer-coolingpad-fancurve --off
 
 # Generate a sample config to customize
-python3 razer-coolingpad-fancurve.py --generate-config > my-curve.json
+razer-coolingpad-fancurve --generate-config > my-curve.json
 ```
 
 ### Command-line options
@@ -166,16 +189,10 @@ Fans start early and ramp aggressively. Best for gaming or sustained heavy loads
 ## Running as a systemd service
 
 ```bash
-# Create the venv (systemd needs its own Python with dependencies installed)
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
+# Review or adjust the packaged config
+sudo nano /etc/razer-coolingpad-linux/config.json
 
-# Edit the service file to match your install path and preferred curve
-nano razer-coolingpad.service
-
-# Install and start
-sudo cp razer-coolingpad.service /etc/systemd/system/
-sudo systemctl daemon-reload
+# Enable and start
 sudo systemctl enable --now razer-coolingpad.service
 
 # Check status / logs
@@ -185,6 +202,10 @@ sudo journalctl -u razer-coolingpad.service -f
 # Stop and disable
 sudo systemctl disable --now razer-coolingpad.service
 ```
+
+The packaged service reads `/etc/razer-coolingpad-linux/config.json` by default.
+
+Example curves are installed to `/usr/share/razer-coolingpad-linux/curves/`.
 
 ## How it works
 

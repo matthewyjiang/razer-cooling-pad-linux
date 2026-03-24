@@ -1,0 +1,26 @@
+pkgbase = razer-coolingpad-linux
+	pkgdesc = Fan curve controller for the Razer Laptop Cooling Pad
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/Nox1con/razer-coolingpad-linux
+	install = razer-coolingpad-linux.install
+	arch = any
+	license = MIT
+	depends = python
+	depends = python-hidapi
+	depends = systemd
+	backup = etc/razer-coolingpad-linux/config.json
+	source = LICENSE
+	source = README.md
+	source = config.json
+	source = razer-coolingpad-fancurve.py
+	source = razer-coolingpad-linux.install
+	source = razer-coolingpad.service
+	sha256sums = SKIP
+	sha256sums = SKIP
+	sha256sums = SKIP
+	sha256sums = SKIP
+	sha256sums = SKIP
+	sha256sums = SKIP
+
+pkgname = razer-coolingpad-linux

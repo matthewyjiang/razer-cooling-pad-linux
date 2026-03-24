@@ -1,11 +1,9 @@
 [Unit]
 Description=Razer Cooling Pad Fan Curve Controller
-After=multi-user.target
 
 [Service]
 Type=simple
-# Adjust paths below to match your installation
-ExecStart=/opt/razer-coolingpad-linux/venv/bin/python3 /opt/razer-coolingpad-linux/razer-coolingpad-fancurve.py -c /opt/razer-coolingpad-linux/curves/balanced.json
+ExecStart=/usr/bin/razer-coolingpad-fancurve -c /etc/razer-coolingpad-linux/config.json
 Restart=on-failure
 RestartSec=5
 
