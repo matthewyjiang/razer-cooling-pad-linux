@@ -46,6 +46,7 @@ This installs:
 - `razer-coolingpad-fancurve` to `/usr/bin/`
 - `razer-coolingpad-preset` to `/usr/bin/`
 - the service to `/usr/lib/systemd/system/razer-coolingpad.service`
+- a udev rule to `/usr/lib/udev/rules.d/99-razer-coolingpad.rules`
 - the default config to `/etc/razer-coolingpad-linux/config.json`
 - example curves to `/usr/share/razer-coolingpad-linux/curves/`
 
@@ -89,7 +90,11 @@ sudo dnf install hidapi
 
 ### Permissions
 
-The script needs access to the HID device. You can either:
+The Arch package installs a udev rule for the cooling pad automatically.
+If the pad was already plugged in when you installed the package, unplug and replug it
+(or reboot) so the new permissions apply.
+
+For non-packaged installs, the script needs access to the HID device. You can either:
 
 **Option A:** Run with `sudo` (simplest)
 

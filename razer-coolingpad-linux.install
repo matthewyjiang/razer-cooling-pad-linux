@@ -1,7 +1,15 @@
 post_install() {
+  if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || true
+  fi
+
   cat <<'EOF'
 ==> To enable the packaged systemd service, run:
     sudo systemctl enable --now razer-coolingpad.service
+
+==> A udev rule was installed for the cooling pad.
+    If the device was already plugged in, unplug and replug it.
 
 ==> To switch presets later, run:
     razer-coolingpad-preset list
