@@ -1,4 +1,4 @@
 pkg/
-src/
+target/
 *.pkg.tar.zst
 *.src.tar.gz

@@ -1,6 +1,6 @@
 # Razer Laptop Cooling Pad - Linux Fan Curve Controller
 
-A Python script that gives you full fan curve control over the **Razer Laptop Cooling Pad** on Linux, bypassing Razer Synapse entirely.
+A Rust CLI package that gives you full fan curve control over the **Razer Laptop Cooling Pad** on Linux, bypassing Razer Synapse entirely.
 
 The Razer Cooling Pad (USB `1532:0F43`) only officially supports Windows via Razer Synapse, which provides limited built-in fan profiles with non-linear behavior. This tool communicates directly with the pad over HID to set precise fan speeds based on your CPU temperature.
 
@@ -68,14 +68,14 @@ sudo razer-coolingpad-preset set balanced
 ```bash
 git clone https://github.com/YOUR_USERNAME/razer-coolingpad-linux.git
 cd razer-coolingpad-linux
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+cargo build --release
+sudo install -Dm755 target/release/razer-coolingpad-fancurve /usr/local/bin/razer-coolingpad-fancurve
+sudo install -Dm755 target/release/razer-coolingpad-preset /usr/local/bin/razer-coolingpad-preset
 ```
 
 ### System dependency
 
-The `hidapi` Python package requires the `hidapi` C library. Install it for your distro:
+The Rust `hidapi` crate links against the `hidapi` C library. Install it for your distro:
 
 ```bash
 # Arch / Manjaro

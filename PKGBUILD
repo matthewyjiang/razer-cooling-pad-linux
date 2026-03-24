@@ -2,21 +2,25 @@ pkgname=razer-coolingpad-linux
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='Fan curve controller for the Razer Laptop Cooling Pad'
-arch=('any')
+arch=('x86_64')
 url='https://github.com/Nox1con/razer-coolingpad-linux'
 license=('MIT')
-depends=('python' 'python-hidapi' 'systemd')
+depends=('hidapi' 'systemd')
+makedepends=('cargo')
 install="$pkgname.install"
 backup=('etc/razer-coolingpad-linux/config.json')
 source=(
   '99-razer-coolingpad.rules'
+  'Cargo.lock'
+  'Cargo.toml'
   'LICENSE'
   'README.md'
   'config.json'
-  'razer-coolingpad-fancurve.py'
-  'razer-coolingpad-preset'
   'razer-coolingpad-linux.install'
   'razer-coolingpad.service'
+  'src/bin/razer-coolingpad-fancurve.rs'
+  'src/bin/razer-coolingpad-preset.rs'
+  'src/lib.rs'
 )
 sha256sums=(
   'SKIP'
@@ -27,7 +31,14 @@ sha256sums=(
   'SKIP'
   'SKIP'
   'SKIP'
+  'SKIP'
+  'SKIP'
+  'SKIP'
 )
+
+build() {
+  cargo build --release --locked
+}
 
 package() {
   install -Dm644 "$srcdir/99-razer-coolingpad.rules" \
@@ -35,9 +46,9 @@ package() {
   install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
 
-  install -Dm755 "$srcdir/razer-coolingpad-fancurve.py" \
+  install -Dm755 "$srcdir/target/release/razer-coolingpad-fancurve" \
     "$pkgdir/usr/bin/razer-coolingpad-fancurve"
-  install -Dm755 "$srcdir/razer-coolingpad-preset" \
+  install -Dm755 "$srcdir/target/release/razer-coolingpad-preset" \
     "$pkgdir/usr/bin/razer-coolingpad-preset"
   install -Dm644 "$srcdir/razer-coolingpad.service" \
     "$pkgdir/usr/lib/systemd/system/razer-coolingpad.service"
