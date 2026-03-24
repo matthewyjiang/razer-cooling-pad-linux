@@ -18,14 +18,8 @@ source=(
   'config.json'
   'razer-coolingpad-linux.install'
   'razer-coolingpad.service'
-  'src/bin/razer-coolingpad-fancurve.rs'
-  'src/bin/razer-coolingpad-preset.rs'
-  'src/lib.rs'
 )
 sha256sums=(
-  'SKIP'
-  'SKIP'
-  'SKIP'
   'SKIP'
   'SKIP'
   'SKIP'
@@ -37,7 +31,7 @@ sha256sums=(
 )
 
 build() {
-  cargo build --release --locked
+  cargo build --release --locked --manifest-path "$startdir/Cargo.toml"
 }
 
 package() {
@@ -46,9 +40,9 @@ package() {
   install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
 
-  install -Dm755 "$srcdir/target/release/razer-coolingpad-fancurve" \
+  install -Dm755 "$startdir/target/release/razer-coolingpad-fancurve" \
     "$pkgdir/usr/bin/razer-coolingpad-fancurve"
-  install -Dm755 "$srcdir/target/release/razer-coolingpad-preset" \
+  install -Dm755 "$startdir/target/release/razer-coolingpad-preset" \
     "$pkgdir/usr/bin/razer-coolingpad-preset"
   install -Dm644 "$srcdir/razer-coolingpad.service" \
     "$pkgdir/usr/lib/systemd/system/razer-coolingpad.service"
