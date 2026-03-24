@@ -3,6 +3,10 @@ post_install() {
 ==> To enable the packaged systemd service, run:
     sudo systemctl enable --now razer-coolingpad.service
 
+==> To switch presets later, run:
+    razer-coolingpad-preset list
+    sudo razer-coolingpad-preset set balanced
+
 ==> Default config:
     /etc/razer-coolingpad-linux/config.json
 

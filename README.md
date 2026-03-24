@@ -36,6 +36,7 @@ makepkg -si
 This installs:
 
 - `razer-coolingpad-fancurve` to `/usr/bin/`
+- `razer-coolingpad-preset` to `/usr/bin/`
 - the service to `/usr/lib/systemd/system/razer-coolingpad.service`
 - the default config to `/etc/razer-coolingpad-linux/config.json`
 - example curves to `/usr/share/razer-coolingpad-linux/curves/`
@@ -107,6 +108,12 @@ sudo razer-coolingpad-fancurve --off
 
 # Generate a sample config to customize
 razer-coolingpad-fancurve --generate-config > my-curve.json
+
+# Show available presets
+razer-coolingpad-preset list
+
+# Switch the packaged service to a preset
+sudo razer-coolingpad-preset set performance
 ```
 
 ### Command-line options
@@ -126,6 +133,14 @@ razer-coolingpad-fancurve --generate-config > my-curve.json
 ## Fan Curve Configs
 
 Three example curves are provided in the `curves/` directory:
+
+For packaged installs, switch between them with:
+
+```bash
+razer-coolingpad-preset list
+sudo razer-coolingpad-preset set silent
+razer-coolingpad-preset current
+```
 
 ### `silent.json` - Prioritize quiet operation
 

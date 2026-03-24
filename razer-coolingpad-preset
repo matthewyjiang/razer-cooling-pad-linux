@@ -1,0 +1,98 @@
+#!/bin/sh
+
+set -eu
+
+pkgname='razer-coolingpad-linux'
+service='razer-coolingpad.service'
+curve_dir="/usr/share/$pkgname/curves"
+config_path="/etc/$pkgname/config.json"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  razer-coolingpad-preset list
+  razer-coolingpad-preset current
+  sudo razer-coolingpad-preset set <silent|balanced|performance>
+EOF
+}
+
+presets() {
+  for path in "$curve_dir"/*.json; do
+    basename "$path" .json
+  done
+}
+
+detect_current() {
+  if [ ! -f "$config_path" ]; then
+    printf 'missing\n'
+    return
+  fi
+
+  for preset in $(presets); do
+    if cmp -s "$config_path" "$curve_dir/$preset.json"; then
+      printf '%s\n' "$preset"
+      return
+    fi
+  done
+
+  printf 'custom\n'
+}
+
+list_presets() {
+  current="$(detect_current)"
+
+  for preset in $(presets); do
+    marker=' '
+    if [ "$preset" = "$current" ]; then
+      marker='*'
+    fi
+    printf '%s %s\n' "$marker" "$preset"
+  done
+
+  if [ "$current" = 'custom' ]; then
+    printf '* custom\n'
+  fi
+}
+
+set_preset() {
+  preset="$1"
+  source_path="$curve_dir/$preset.json"
+
+  if [ ! -f "$source_path" ]; then
+    printf 'Unknown preset: %s\n' "$preset" >&2
+    usage >&2
+    exit 1
+  fi
+
+  install -Dm644 "$source_path" "$config_path"
+  printf 'Active curve set to %s.\n' "$preset"
+
+  if systemctl is-active --quiet "$service"; then
+    systemctl restart "$service"
+    printf 'Restarted %s.\n' "$service"
+  else
+    printf 'Service is not running. Start it with: sudo systemctl enable --now %s\n' "$service"
+  fi
+}
+
+command="${1:-}"
+
+case "$command" in
+  list)
+    list_presets
+    ;;
+  current)
+    detect_current
+    ;;
+  set)
+    if [ "$#" -ne 2 ]; then
+      usage >&2
+      exit 1
+    fi
+    set_preset "$2"
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

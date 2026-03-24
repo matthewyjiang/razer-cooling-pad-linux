@@ -13,10 +13,12 @@ source=(
   'README.md'
   'config.json'
   'razer-coolingpad-fancurve.py'
+  'razer-coolingpad-preset'
   'razer-coolingpad-linux.install'
   'razer-coolingpad.service'
 )
 sha256sums=(
+  'SKIP'
   'SKIP'
   'SKIP'
   'SKIP'
@@ -31,6 +33,8 @@ package() {
 
   install -Dm755 "$srcdir/razer-coolingpad-fancurve.py" \
     "$pkgdir/usr/bin/razer-coolingpad-fancurve"
+  install -Dm755 "$srcdir/razer-coolingpad-preset" \
+    "$pkgdir/usr/bin/razer-coolingpad-preset"
   install -Dm644 "$srcdir/razer-coolingpad.service" \
     "$pkgdir/usr/lib/systemd/system/razer-coolingpad.service"
   install -Dm644 "$srcdir/config.json" \
