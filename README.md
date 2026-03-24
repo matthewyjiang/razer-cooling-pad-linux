@@ -27,10 +27,18 @@ Fan speed range: **500 - 3200 RPM** (50 RPM increments).
 
 ### Arch Linux package
 
-Build and install the package from this repository:
+Install the packaging tools if needed, then build and install the package from this repository:
 
 ```bash
+sudo pacman -S --needed base-devel
 makepkg -si
+```
+
+If you prefer to install the built package separately:
+
+```bash
+makepkg -s
+sudo pacman -U ./razer-coolingpad-linux-*.pkg.tar.zst
 ```
 
 This installs:
@@ -45,6 +53,13 @@ After installing, edit `/etc/razer-coolingpad-linux/config.json` if needed, then
 
 ```bash
 sudo systemctl enable --now razer-coolingpad.service
+```
+
+To switch between the packaged presets later:
+
+```bash
+razer-coolingpad-preset list
+sudo razer-coolingpad-preset set balanced
 ```
 
 ### Source install
