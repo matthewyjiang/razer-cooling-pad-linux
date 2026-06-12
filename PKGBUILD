@@ -1,5 +1,5 @@
 pkgname=razer-coolingpad-linux
-pkgver=0.2.0
+pkgver=0.2.0 # x-release-please-version
 pkgrel=1
 pkgdesc='Fan curve controller for the Razer Laptop Cooling Pad'
 arch=('any')
