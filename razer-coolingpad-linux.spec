@@ -6,7 +6,7 @@
 
 Name:           razer-coolingpad-linux
 # x-release-please-start-version
-Version:        0.2.0
+Version:        0.3.0
 # x-release-please-end
 Release:        1%{?dist}
 Summary:        Fan curve controller for the Razer Laptop Cooling Pad
