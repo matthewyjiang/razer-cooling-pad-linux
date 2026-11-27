@@ -1,5 +1,8 @@
-pkg/
-src/
+/pkg/
+/src/
 *.pkg.tar.zst
 *.src.tar.gz
 __pycache__/
+gui/target/
+gui/arch/src/
+gui/arch/pkg/

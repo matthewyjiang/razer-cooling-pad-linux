@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- The app's fan curve in its heat ramp: steel blue when cool, brick red when hot. -->
+  <defs>
+    <linearGradient id="heat" x1="20" y1="0" x2="108" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6aa3d9"/>
+      <stop offset="0.45" stop-color="#bfb196"/>
+      <stop offset="1" stop-color="#e2654f"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="#1b1c20"/>
+  <path d="M24 92 H50 L72 62 L90 40 H104 V96 H24 Z" fill="url(#heat)" opacity="0.2"/>
+  <line x1="24" y1="96" x2="104" y2="96" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
+  <path d="M24 92 H50 L72 62 L90 40 H104" fill="none" stroke="url(#heat)" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="72" cy="62" r="7" fill="#1b1c20" stroke="#cf9a7e" stroke-width="4"/>
+</svg>
