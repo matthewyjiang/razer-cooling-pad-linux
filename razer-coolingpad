@@ -11,11 +11,18 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+# Talk to the pad through hidraw, the device node our udev rule grants access
+# to. hidapi builds that default to libusb (Fedora, PyPI wheels) expose hidraw
+# as a separate `hidraw` module and libusb as `hid`, and libusb needs USB-node
+# permissions the rule does not grant. Arch builds hidraw-only, as `hid`.
 try:
-    import hid
+    import hidraw as hid
 except ImportError:
-    print("Error: hidapi not installed. Run: uv sync", file=sys.stderr)
-    sys.exit(1)
+    try:
+        import hid
+    except ImportError:
+        print("Error: hidapi not installed. Run: uv sync", file=sys.stderr)
+        sys.exit(1)
 
 # Device constants
 VID = 0x1532

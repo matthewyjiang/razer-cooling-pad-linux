@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -15,7 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Release Please
+        id: release
         uses: googleapis/release-please-action@v4
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # Tags pushed with GITHUB_TOKEN do not trigger the publish workflows'
+      # tag-push trigger, so dispatch them on the new tag explicitly.
+      - name: Dispatch package publishing
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          gh workflow run publish-arch-package.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          gh workflow run publish-fedora-package.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
