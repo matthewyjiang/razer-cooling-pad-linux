@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Cooling Pad
+GenericName=Fan Curve Editor
+Comment=Pick presets and edit the fan curve of the Razer Laptop Cooling Pad
+Exec=razer-coolingpad-gui
+Icon=razer-coolingpad-gui
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=razer;fan;cooling;temperature;
+StartupWMClass=razer-coolingpad-gui

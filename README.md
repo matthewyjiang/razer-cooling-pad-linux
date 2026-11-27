@@ -12,6 +12,7 @@ This project talks to the pad over HID, so you can run custom curves without Raz
 - Automatic reconnect after unplug/replug
 - Clean shutdown that releases control back to the pad
 - Included Arch and Fedora package files, systemd service, and preset management
+- Optional desktop GUI: live temperature, preset picker, and a draggable curve editor
 
 ## Hardware
 
@@ -99,6 +100,28 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
+## GUI
+
+`razer-coolingpad-gui` is a small window for the running service. It shows the current temperature and fan speed, switches presets, and lets you drag the curve points. **Apply** writes the config through `pkexec razer-coolingpad apply-config`, which validates it, installs it to `/etc/razer-coolingpad-linux/config.json`, and restarts the service. If the service is stopped, **Start** next to its status starts it.
+
+It ships as its own package so the CLI stays a dependency-free Python script:
+
+```bash
+# Arch (from a checkout)
+cd gui/arch && makepkg -si
+
+# Fedora
+sudo dnf install razer-coolingpad-linux-gui
+```
+
+The GUI is built with [Rune](https://github.com/anomalyco/rune) and needs Rust 1.99+ plus the Wayland and xkbcommon headers (`wayland-devel libxkbcommon-devel` on Fedora). To run it from a checkout against the in-tree CLI:
+
+```bash
+RAZER_COOLINGPAD_CLI="$PWD/razer-coolingpad" cargo run --manifest-path gui/Cargo.toml
+```
+
+`RAZER_COOLINGPAD_CONFIG=path/to/config.json` points both the GUI and the CLI it runs at another config file. Set it together with `RAZER_COOLINGPAD_CLI` pointing at the in-tree script, which then takes presets from `curves/`. Applying still restarts the system service if it is running.
+
 ## Usage
 
 ### Common commands
@@ -151,6 +174,7 @@ sudo razer-coolingpad preset set balanced
 | `set-rpm RPM` | Set a fixed speed and exit |
 | `off` | Release control and exit |
 | `generate-config` | Print a sample JSON config |
+| `apply-config FILE` | Validate a config, install it as the active config, and restart the service if needed |
 | `preset list` | List available presets |
 | `preset current` | Show the active preset |
 | `preset status` | Show live status using the active preset config |
