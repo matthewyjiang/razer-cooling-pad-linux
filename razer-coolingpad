@@ -3,10 +3,13 @@
 
 import argparse
 import json
+import math
+import os
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -231,18 +234,39 @@ def validate_sensor_paths(sensor_paths):
 def load_config(path):
     """Load fan curve config from a JSON file."""
     with open(path, encoding="utf-8") as file_obj:
-        raw_config = json.load(file_obj)
+        return parse_config(file_obj.read())
+
+
+def finite(value, name):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be a finite number, got {value!r}")
+    return number
+
+
+def curve_point(point):
+    try:
+        return (finite(point["temp"], "temp"), finite(point["percent"], "percent"))
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"curve points need a numeric temp and percent, got {point!r}") from exc
+
+
+def parse_config(text):
+    """Parse and validate a JSON config string."""
+    raw_config = json.loads(text)
+    if not isinstance(raw_config, dict):
+        raise ValueError("config must be a JSON object")
 
     config = AppConfig(curve=list(DEFAULT_CURVE))
 
     if "curve" in raw_config:
-        config.curve = validate_curve(
-            (point["temp"], point["percent"]) for point in raw_config["curve"]
-        )
+        config.curve = validate_curve(curve_point(point) for point in raw_config["curve"])
     if "interval" in raw_config:
-        config.interval = float(raw_config["interval"])
+        config.interval = finite(raw_config["interval"], "interval")
+        if config.interval <= 0:
+            raise ValueError(f"interval must be positive, got {config.interval:g}")
     if "hysteresis" in raw_config:
-        config.hysteresis = max(0.0, float(raw_config["hysteresis"]))
+        config.hysteresis = max(0.0, finite(raw_config["hysteresis"], "hysteresis"))
     if "sensors" in raw_config and raw_config["sensors"] != "auto":
         config.sensors = validate_sensor_paths(raw_config["sensors"])
 
@@ -279,6 +303,11 @@ def parse_args():
 
     subparsers.add_parser("off", help="Release fan control and exit")
     subparsers.add_parser("generate-config", help="Print a sample JSON config and exit")
+
+    apply_config_parser = subparsers.add_parser(
+        "apply-config", help="Validate a JSON config and make it the active config"
+    )
+    apply_config_parser.add_argument("file", metavar="FILE", help="Config file to install, or - for stdin")
 
     preset_parser = subparsers.add_parser("preset", help="Manage preset curves")
     preset_subparsers = preset_parser.add_subparsers(dest="preset_command", required=True)
@@ -375,11 +404,44 @@ def set_preset(config_path, curve_dir, preset_name):
     if not source.exists():
         raise ValueError(f"unknown preset: {preset_name}")
 
+    install_config(source, config_path)
+    print(f"Active curve set to {preset_name}.")
+    restart_service_if_active()
+
+
+def apply_config(config_path, source):
+    """Validate a config file (`-` for stdin), make it the active config, and restart the
+    service. The bytes are read once, so what is validated is what gets installed."""
+    if source == "-":
+        data = sys.stdin.buffer.read()
+    else:
+        data = Path(source).read_bytes()
+    parse_config(data.decode("utf-8"))
+    write_config(data, config_path)
+    print("Active config replaced.")
+    restart_service_if_active()
+
+
+def install_config(source, config_path):
+    write_config(Path(source).read_bytes(), config_path)
+
+
+def write_config(data, config_path):
+    """Atomically replace the config with `data`, world-readable like the packaged one."""
     destination = Path(config_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, destination)
-    print(f"Active curve set to {preset_name}.")
+    fd, temp = tempfile.mkstemp(dir=destination.parent, prefix=f".{destination.name}.")
+    try:
+        with os.fdopen(fd, "wb") as file_obj:
+            file_obj.write(data)
+        os.chmod(temp, 0o644)
+        os.replace(temp, destination)
+    except BaseException:
+        Path(temp).unlink(missing_ok=True)
+        raise
 
+
+def restart_service_if_active():
     systemctl = shutil.which("systemctl")
     if systemctl and Path("/run/systemd/system").exists():
         service = "razer-coolingpad.service"
@@ -461,6 +523,15 @@ def main():
         print(json.dumps(generate_sample_config(), indent=2))
         return
 
+    if args.command == "apply-config":
+        try:
+            apply_config(args.config or DEFAULT_CONFIG_PATH, args.file)
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError,
+                subprocess.CalledProcessError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+
     if args.command == "preset":
         config_path = args.config or DEFAULT_CONFIG_PATH
         curve_dir = get_curve_dir(config_path)
@@ -474,7 +545,7 @@ def main():
         if args.preset_command == "set":
             try:
                 set_preset(config_path, curve_dir, args.preset)
-            except (OSError, ValueError) as exc:
+            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                 print(f"Error: {exc}", file=sys.stderr)
                 sys.exit(1)
             return
