@@ -11,7 +11,7 @@ This project talks to the pad over HID, so you can run custom curves without Raz
 - Temperature hysteresis to reduce unnecessary fan step-downs
 - Automatic reconnect after unplug/replug
 - Clean shutdown that releases control back to the pad
-- Included Arch package files, systemd service, and preset management
+- Included Arch and Fedora package files, systemd service, and preset management
 
 ## Hardware
 
@@ -39,6 +39,19 @@ That installs:
 - preset curves to `/usr/share/razer-coolingpad-linux/curves/`
 
 Enable the service after install:
+
+```bash
+sudo systemctl enable --now razer-coolingpad.service
+```
+
+### Fedora
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://repo.matthewyjiang.com/mjiang-extras.repo
+sudo dnf install razer-coolingpad-linux
+```
+
+The RPM installs the same files as the Arch package. Enable the service after install:
 
 ```bash
 sudo systemctl enable --now razer-coolingpad.service
@@ -76,7 +89,7 @@ sudo dnf install hidapi
 
 ## Permissions
 
-The Arch package installs the udev rule automatically. If the pad was already connected, unplug and replug it after installing.
+The Arch and Fedora packages install the udev rule automatically. If the pad was already connected, unplug and replug it after installing.
 
 For manual installs, either run the tool with `sudo` or install the included udev rule:
 
