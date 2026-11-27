@@ -56,6 +56,9 @@ jobs:
           set -euo pipefail
           dnf install -y "$RUNNER_TEMP"/rpmbuild/RPMS/noarch/*.rpm
           razer-coolingpad --help >/dev/null
+          # The CLI talks hidraw so the udev rule applies; Fedora's hidapi must
+          # ship the separate hidraw module (its `hid` is libusb).
+          python3 -c 'import hidraw'
           test -f /etc/razer-coolingpad-linux/config.json
 
       - name: Checkout mjiang-extras
