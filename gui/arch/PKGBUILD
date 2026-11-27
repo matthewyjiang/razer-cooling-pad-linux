@@ -1,0 +1,38 @@
+# Lives in its own directory because makepkg creates src/ and pkg/ next to the PKGBUILD,
+# which would collide with the crate's src/. Build from a checkout: cd gui/arch && makepkg -si
+pkgname=razer-coolingpad-linux-gui
+pkgver=0.2.0 # x-release-please-version
+pkgrel=1
+pkgdesc='Desktop GUI for the Razer Laptop Cooling Pad fan curve controller'
+arch=('x86_64')
+url='https://github.com/matthewyjiang/razer-cooling-pad-linux'
+license=('MIT')
+# winit and fontconfig are dlopened, so namcap can't infer the window-system libraries.
+depends=("razer-coolingpad-linux>=$pkgver" 'polkit' 'gcc-libs' 'glibc' 'fontconfig'
+         'wayland' 'libxkbcommon' 'libxkbcommon-x11' 'libx11' 'libxcursor' 'libxi')
+optdepends=('vulkan-icd-loader: GPU rendering (draws on the CPU without it)')
+makedepends=('cargo')
+# Cargo strips the binary itself (profile.release), so a -debug package would be empty.
+options=('!lto' '!debug')
+
+prepare() {
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')" \
+    --manifest-path "$startdir/../Cargo.toml"
+}
+
+build() {
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo build --release --frozen --manifest-path "$startdir/../Cargo.toml"
+}
+
+package() {
+  local gui="$startdir/.."
+  install -Dm755 "$srcdir/target/release/razer-coolingpad-gui" "$pkgdir/usr/bin/razer-coolingpad-gui"
+  install -Dm644 "$gui/razer-coolingpad-gui.desktop" \
+    "$pkgdir/usr/share/applications/razer-coolingpad-gui.desktop"
+  install -Dm644 "$gui/razer-coolingpad-gui.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/razer-coolingpad-gui.svg"
+  install -Dm644 "$gui/../LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

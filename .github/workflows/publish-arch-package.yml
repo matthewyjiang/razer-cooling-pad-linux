@@ -5,6 +5,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+  # Build-only on PRs touching packaging, so PKGBUILD breakage shows up before a tag.
+  pull_request:
+    paths:
+      - "PKGBUILD"
+      - "gui/**"
+      - ".github/workflows/publish-arch-package.yml"
 
 jobs:
   build-and-publish:
@@ -25,8 +31,12 @@ jobs:
         run: |
           chown -R builduser:builduser "$GITHUB_WORKSPACE"
           sudo -u builduser makepkg -s --noconfirm
+          # The GUI depends on the CLI package, so install it before resolving the GUI's deps.
+          pacman -U --noconfirm ./*.pkg.tar.zst
+          (cd gui/arch && sudo -u builduser makepkg -s --noconfirm)
 
       - name: Checkout mjiang-extras
+        if: github.event_name != 'pull_request'
         uses: actions/checkout@v4
         with:
           repository: matthewyjiang/mjiang-extras
@@ -34,11 +44,12 @@ jobs:
           path: mjiang-extras
 
       - name: Publish package files
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
 
           chmod +x mjiang-extras/scripts/publish-packages.sh
-          mjiang-extras/scripts/publish-packages.sh --repo-dir mjiang-extras ./*.pkg.tar.zst
+          mjiang-extras/scripts/publish-packages.sh --repo-dir mjiang-extras ./*.pkg.tar.zst gui/arch/*.pkg.tar.zst
 
           cd mjiang-extras
           git config user.name "github-actions[bot]"

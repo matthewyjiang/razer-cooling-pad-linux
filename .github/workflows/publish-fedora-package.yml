@@ -11,6 +11,7 @@ on:
   pull_request:
     paths:
       - "*.spec"
+      - "gui/**"
       - ".github/workflows/publish-fedora-package.yml"
 
 permissions:
@@ -24,7 +25,10 @@ jobs:
 
     steps:
       - name: Install build tools
-        run: dnf install -y --setopt=install_weak_deps=False rpm-build createrepo_c git systemd-rpm-macros
+        # The second line is the GUI spec's BuildRequires; rpmbuild fails if they drift.
+        run: |
+          dnf install -y --setopt=install_weak_deps=False rpm-build createrepo_c git systemd-rpm-macros \
+            cargo rust gcc libxkbcommon-devel wayland-devel desktop-file-utils
 
       - name: Checkout package repo
         uses: actions/checkout@v4
@@ -35,13 +39,14 @@ jobs:
           # The container runs as root but the workspace belongs to the runner user.
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-          spec=razer-coolingpad-linux.spec
-          name_version="$(rpmspec -q --srpm --qf '%{NAME}-%{VERSION}' "$spec")"
           topdir="$RUNNER_TEMP/rpmbuild"
           mkdir -p "$topdir/SOURCES"
-          git archive --format=tar.gz --prefix="$name_version/" \
-            -o "$topdir/SOURCES/$name_version.tar.gz" HEAD
-          rpmbuild -bb --define "_topdir $topdir" "$spec"
+          for spec in razer-coolingpad-linux.spec gui/razer-coolingpad-linux-gui.spec; do
+            name_version="$(rpmspec -q --srpm --qf '%{NAME}-%{VERSION}' "$spec")"
+            git archive --format=tar.gz --prefix="$name_version/" \
+              -o "$topdir/SOURCES/$name_version.tar.gz" HEAD
+            rpmbuild -bb --define "_topdir $topdir" "$spec"
+          done
 
       - name: Show built RPMs
         run: |
@@ -54,8 +59,10 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
-          dnf install -y "$RUNNER_TEMP"/rpmbuild/RPMS/noarch/*.rpm
+          dnf install -y "$RUNNER_TEMP"/rpmbuild/RPMS/*/*.rpm
           razer-coolingpad --help >/dev/null
+          razer-coolingpad apply-config --help >/dev/null
+          test -x /usr/bin/razer-coolingpad-gui
           # The CLI talks hidraw so the udev rule applies; Fedora's hidapi must
           # ship the separate hidraw module (its `hid` is libusb).
           python3 -c 'import hidraw'
@@ -80,4 +87,4 @@ jobs:
           # push-rpms.sh retries races with other publishers and signing.
           mjiang-extras/scripts/push-rpms.sh --repo-dir mjiang-extras \
             --message "chore(fedora): update packages from ${{ github.repository }}" \
-            "$RUNNER_TEMP"/rpmbuild/RPMS/noarch/*.rpm
+            "$RUNNER_TEMP"/rpmbuild/RPMS/*/*.rpm
